@@ -5,8 +5,8 @@ tfgan=tf.contrib.gan
 mnist=tf.keras.datasets.mnist
 
 (x_train, y_train),(x_test, y_test) = mnist.load_data()
-x_train = np.expand_dims(x_train, axis=-1).astype(np.float32)
-x_test = np.expand_dims(x_test, axis=-1).astype(np.float32)
+x_train = np.expand_dims(x_train[:3000], axis=-1).astype(np.float32)
+x_test = np.expand_dims(x_test[:3000], axis=-1).astype(np.float32)
 
 queues = tf.contrib.slim.queues
 layers = tf.contrib.layers
@@ -75,12 +75,13 @@ def discriminator_fn(img, unused_conditioning, weight_decay=2.5e-5,
             net = layers.fully_connected(net, 1024, normalizer_fn=layers.batch_norm)
         return layers.linear(net, 1)
 
-gen_inputs=tf.random_normal([60000, 64])
+# gen_inputs=tf.random_normal([60000, 64])
+gen_inputs=tf.random_normal([3000, 64]) # it turns out using 60k examples eventually gets a bad_alloc :(
 
 gan_model=tfgan.gan_model(generator_fn=generator_fn,
                           discriminator_fn=discriminator_fn,
                           real_data=x_train,
-                      generator_inputs=gen_inputs)
+                          generator_inputs=gen_inputs)
 
 wgan_loss=tfgan.gan_loss(gan_model,
                          generator_loss_fn=tfgan.losses.wasserstein_generator_loss,
@@ -89,14 +90,48 @@ wgan_loss=tfgan.gan_loss(gan_model,
 gan_train_ops = tfgan.gan_train_ops(
     gan_model,
     wgan_loss,
-    tf.train.AdamOptimizer(0.001, beta1=0.5),
-    tf.train.AdamOptimizer(0.0001, beta1=0.5))
+    tf.train.RMSPropOptimizer(0.00005),
+    tf.train.RMSPropOptimizer(0.00005))
 
 tfgan.gan_train(
     gan_train_ops,
-    hooks=[tf.train.StopAtStepHook(num_steps=2)],
+    hooks=[tf.train.StepCounterHook(10)],
     logdir='logs')
 
 
+# thank you https://stackoverflow.com/questions/45532365/is-there-any-tutorial-for-tf-train-sessionrunhook#46795160
+# Note that THIS IS NOT ACTUALLY GETTING CALLED RN, we're using the built-in
+class _MonitorHook(tf.train.SessionRunHook):
+    """Make TensorBoard see things"""
 
+    # def begin(self):
+    #     with tf.name_scope(layer_name):
+    #         with tf.name_scope('summaries'):
+    #             weights = weight_variable([input_dim, output_dim])
+    #             mean = tf.reduce_mean(weights)
+    #             tf.summary.scalar('mean', mean)
+    #             tf.summary.histogram('histogram', weights)
 
+    def begin(self):
+        self._step = -1
+        self._start_time = time.time()
+
+    def before_run(self, run_context):
+        self._step += 1
+        return tf.train.SessionRunArgs(loss)  # Asks for loss value.
+
+    def after_run(self, run_context, run_values):
+        if self._step % FLAGS.log_frequency == 0:
+            current_time = time.time()
+            duration = current_time - self._start_time
+            self._start_time = current_time
+
+            loss_value = run_values.results
+            examples_per_sec = FLAGS.log_frequency * FLAGS.batch_size / duration
+            sec_per_batch = float(duration / FLAGS.log_frequency)
+
+            format_str = ('%s: step %d, loss = %.2f (%.1f examples/sec; %.3f '
+                          'sec/batch)')
+            print (format_str % (datetime.now(), self._step, loss_value,
+                                 examples_per_sec, sec_per_batch))
+    
