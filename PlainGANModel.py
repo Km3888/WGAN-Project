@@ -1,6 +1,13 @@
 import tensorflow as tf
 import numpy as np
 
+## TODO: implement argparse to provide constants as CL arguments
+##   (incl. hyperparameters, dataset size, and log directory)
+## TODO: Parameterize loss function setup to combine this file
+##   with the WGANModel.py.
+## TODO: explicit main function
+## TODO: Better monitoring of training process incl. image export
+
 tfgan=tf.contrib.gan
 mnist=tf.keras.datasets.mnist
 
@@ -10,9 +17,7 @@ EXAMPLECOUNT = 64
 x_train = np.expand_dims(x_train[:EXAMPLECOUNT], axis=-1).astype(np.float32)
 x_test = np.expand_dims(x_test[:EXAMPLECOUNT], axis=-1).astype(np.float32)
 
-queues = tf.contrib.slim.queues
 layers = tf.contrib.layers
-ds = tf.contrib.distributions
 framework = tf.contrib.framework
 leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.01)
 
@@ -85,8 +90,8 @@ gan_model=tfgan.gan_model(generator_fn=generator_fn,
                           generator_inputs=gen_inputs)
 
 wgan_loss=tfgan.gan_loss(gan_model,
-                         generator_loss_fn=tfgan.losses.minimax_generator_loss,
-                         discriminator_loss_fn=tfgan.losses.minimax_discriminator_loss,
+                         generator_loss_fn=tfgan.losses.modified_generator_loss,
+                         discriminator_loss_fn=tfgan.losses.modified_discriminator_loss,
                          gradient_penalty_weight=1.0)
 gan_train_ops = tfgan.gan_train_ops(
     gan_model,
