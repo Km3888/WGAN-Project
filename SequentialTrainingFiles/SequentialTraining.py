@@ -28,6 +28,89 @@ framework = tf.contrib.framework
 
 leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.01)
 
+### ### From Striner
+def generate_grid(gan_model, latent_units):
+    print("Generating grid images.\n")
+    with tf.variable_scope(gan_model.generator_scope, reuse=True):
+        with tf.name_scope('GeneratedImages/'):
+            print("Entered scope\n")
+            w = 10 #tf.flags.FLAGS.grid_size # We just want a 10x10 grid.
+            print ("Set w to {}".format(w))
+            n = w * w
+            print ("Set n to {}".format(n))
+            # Sample from the latent space
+            print("Asking for random")
+            rnd = tf.random_normal(shape=(n, latent_units), mean=0.,
+                                   stddev=1., dtype=tf.float32, name='generated_rnd')
+            print ("Got a random\n")
+            # Generate images
+            img = gan_model.generator_fn(rnd)
+            print ("Ran generator function")
+            # Reshape images into a grid
+            iw = 28
+            c = 1
+            img = tf.reshape(img[:w * w], (w, w, iw, iw, c))
+            img = tf.transpose(img, (0, 2, 1, 3, 4))
+            img = tf.reshape(img, (1, iw * w, iw * w, c))
+            # Rescale and clip to [0,1]
+            img = tf.clip_by_value((img + 1.) / 2., 0., 1.)
+            # Add summary
+            tf.summary.image('generated-images', img)
+### END NEW
+
+######################### Copied TF libraries
+### Direct copy from https://github.com/tensorflow/models/blob/master/research/gan/mnist/data_provider.py since the package excludes it now
+# def provide_data(split_name, batch_size, dataset_dir, num_readers=1,
+#                  num_threads=1):
+#   """Provides batches of MNIST digits.
+#   Args:
+#     split_name: Either 'train' or 'test'.
+#     batch_size: The number of images in each batch.
+#     dataset_dir: The directory where the MNIST data can be found.
+#     num_readers: Number of dataset readers.
+#     num_threads: Number of prefetching threads.
+#   Returns:
+#     images: A `Tensor` of size [batch_size, 28, 28, 1]
+#     one_hot_labels: A `Tensor` of size [batch_size, mnist.NUM_CLASSES], where
+#       each row has a single element set to one and the rest set to zeros.
+#     num_samples: The number of total samples in the dataset.
+#   Raises:
+#     ValueError: If `split_name` is not either 'train' or 'test'.
+#   """
+#   dataset = datasets.get_dataset('mnist', split_name, dataset_dir=dataset_dir)
+#   provider = slim.dataset_data_provider.DatasetDataProvider(
+#       dataset,
+#       num_readers=num_readers,
+#       common_queue_capacity=2 * batch_size,
+#       common_queue_min=batch_size,
+#       shuffle=(split_name == 'train'))
+#   [image, label] = provider.get(['image', 'label'])
+
+#   # Preprocess the images.
+#   image = (tf.to_float(image) - 128.0) / 128.0
+
+#   # Creates a QueueRunner for the pre-fetching operation.
+#   images, labels = tf.train.batch(
+#       [image, label],
+#       batch_size=batch_size,
+#       num_threads=num_threads,
+#       capacity=5 * batch_size)
+
+#   one_hot_labels = tf.one_hot(labels, dataset.num_classes)
+#   return images, one_hot_labels, dataset.num_samples
+
+############### And these two are from
+# https://github.com/tensorflow/models/blob/master/research/gan/mnist/util.py
+
+
+
+
+
+###################################
+
+
+
+
 def visualize_training_generator(train_step_num, start_time, data_np):
     """Visualize generator outputs during training.
 
@@ -88,7 +171,8 @@ tf.reset_default_graph()
 
 # Define our input pipeline. Pin it to the CPU so that the GPU can be reserved
 # for forward and backwards propogation.
-batch_size = 32
+batch_size = 64
+max_iters = 2501
 with tf.device('/cpu:0'):
     real_images, _, _ = data_provider.provide_data(
         'train', batch_size, MNIST_DATA_DIR)
@@ -100,6 +184,7 @@ check_real_digits = tfgan.eval.image_reshaper(
 visualize_digits(check_real_digits)
 #plt.show()
 #uncomment to see original mnist digits
+
 
 def generator_fn(noise, weight_decay=2.5e-5, is_training=True):
     """Simple generator to produce MNIST images.
@@ -181,17 +266,22 @@ improved_wgan_loss = tfgan.gan_loss(
     gan_model,
     # We make the loss explicit for demonstration, even though the default is
     # Wasserstein loss.
-    generator_loss_fn=tfgan.losses.wasserstein_generator_loss,
-    discriminator_loss_fn=tfgan.losses.wasserstein_discriminator_loss,
+    # generator_loss_fn=tfgan.losses.wasserstein_generator_loss,
+    # discriminator_loss_fn=tfgan.losses.wasserstein_discriminator_loss,
+    generator_loss_fn = tfgan.losses.modified_generator_loss,
+    discriminator_loss_fn = tfgan.losses.modified_discriminator_loss,
     gradient_penalty_weight=1.0)
 
-generator_optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
-discriminator_optimizer = tf.train.AdamOptimizer(0.0001, beta1=0.5)
+#generator_optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
+#discriminator_optimizer = tf.train.AdamOptimizer(0.0001, beta1=0.5)
+generator_optimizer = tf.train.RMSPropOptimizer(learning_rate=0.001)
+discriminator_optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0001)
 gan_train_ops = tfgan.gan_train_ops(
     gan_model,
     improved_wgan_loss,
     generator_optimizer,
-    discriminator_optimizer)
+    discriminator_optimizer,
+    check_for_unused_update_ops = False)
 
 num_images_to_eval = 500
 MNIST_CLASSIFIER_FROZEN_GRAPH = './mnist/data/classify_mnist_graph_def.pb'
@@ -225,19 +315,26 @@ loss_values, mnist_scores, frechet_distances  = [], [], []
 
 digits_np=x = tf.placeholder(tf.float32, shape=(1024, 1024))
 
+
+print("\n\n\t\tRUN_BEGINS_HERE\n")
+## GENERATE-GRID CALL JS
+# generate_grid(gan_model, latent_units=noise_dims)
+
 sum1 = tf.summary.image(name='digits', tensor=generated_data_to_visualize_tensor)
+print("Printing type of sum1")
 print(type(sum1))
 with tf.train.SingularMonitoredSession() as sess:
     writer=tf.summary.FileWriter('/tmp/mnist_demo/10')
+#     print(type(sum1))
+#     writer.add_summary(sum1)
     writer.add_graph(sess.graph)
-    print(type(sum1))
-    writer.add_summary(sum1)
     start_time = time.time()
-    for i in xrange(1601):
+    for i in xrange(max_iters):
         cur_loss, _ = train_step_fn(
             sess, gan_train_ops, global_step, train_step_kwargs={})
         loss_values.append((i, cur_loss))
         if i % 200 == 0:
+            ## We'd like to drop in an image here!!!
             mnist_score, f_distance, digits_np,digits_tensor = sess.run(
                 [eval_score, frechet_distance, generated_data_to_visualize,generated_data_to_visualize_tensor])
             mnist_scores.append((i, mnist_score))
