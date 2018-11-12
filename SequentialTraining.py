@@ -28,6 +28,26 @@ framework = tf.contrib.framework
 
 leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.01)
 
+########## Global constants / hyperparameters and environment setup
+tf.flags.DEFINE_string('output_dir', '/tmp/mnist_demo/16', 'Model directory')
+tf.flags.DEFINE_string('mnist_data_dir', '/tmp/mnist-data', 'MNIST data dir')
+tf.flags.DEFINE_string('frozen_graph', './mnist/data/classify_mnist_graph_def.pb',
+                       'Weights for MNIST evaluation')
+tf.flags.DEFINE_integer('batch_size', 32, 'Batch size')
+tf.flags.DEFINE_integer('num_cols', 10, 'Output image columns')
+tf.flags.DEFINE_float('weight_decay', 2.5e-5, 'Weight decay')
+tf.flags.DEFINE_integer('noise_dim', 64, 'Dimension of images/noise')
+tf.flags.DEFINE_integer('num_imgs_to_eval', 500,
+                        'Number of images to eval for monitoring.')
+tf.flags.DEFINE_float('grad_penalty_wt', 1.0, 'Gradient penalty weight')
+tf.flags.DEFINE_float('gen_alpha', .001, 'RMSProp learning rate for generator')
+tf.flags.DEFINE_float('disc_alpha', .001, 'RMSProp learning rate for discriminator')
+tf.flags.DEFINE_integer('nCritic', 5, 'Critic training passes per iteration')
+tf.flags.DEFINE_integer('max_steps', 2501, 'Max iterations to train')
+tf.flags.DEFINE_integer('report_interval', 200, 'How often to report rates')
+
+
+
 def visualize_training_generator(train_step_num, start_time, data_np,name):
     """Visualize generator outputs during training.
 
@@ -78,32 +98,31 @@ def evaluate_tfgan_loss(gan_loss, name=None):
         print('Generator loss: %f' % gen_loss_np)
         print('Discriminator loss: %f' % dis_loss_np)
 
-MNIST_DATA_DIR = '/tmp/mnist-data'
+if not tf.gfile.Exists(tf.flags.FLAGS.mnist_data_dir):
+    tf.gfile.MakeDirs(tf.flags.FLAGS.mnist_data_dir)
 
-if not tf.gfile.Exists(MNIST_DATA_DIR):
-    tf.gfile.MakeDirs(MNIST_DATA_DIR)
-
-download_and_convert_mnist.run(MNIST_DATA_DIR)
+download_and_convert_mnist.run(tf.flags.FLAGS.mnist_data_dir)
 
 tf.reset_default_graph()
 
 # Define our input pipeline. Pin it to the CPU so that the GPU can be reserved
 # for forward and backwards propogation.
-batch_size = 32
 with tf.device('/cpu:0'):
     real_images, _, _ = data_provider.provide_data(
-        'train', batch_size, MNIST_DATA_DIR)
+        'train', tf.flags.FLAGS.batch_size, tf.flags.FLAGS.mnist_data_dir)
 
 # Sanity check that we're getting images.
 check_real_digits = tfgan.eval.image_reshaper(
-    real_images[:20,...], num_cols=10)
+    real_images[:20,...], num_cols=tf.flags.FLAGS.num_cols)
 
 visualize_digits(check_real_digits)
 #plt.show()
 #uncomment to see original mnist digits
 
 
-def generator_fn(noise, weight_decay=2.5e-5, is_training=True):
+def generator_fn(noise,
+                 weight_decay=tf.flags.FLAGS.weight_decay,
+                 is_training=True):
     """Simple generator to produce MNIST images.
 
     Args:
@@ -133,7 +152,8 @@ def generator_fn(noise, weight_decay=2.5e-5, is_training=True):
         return net
 
 
-def discriminator_fn(img, unused_conditioning, weight_decay=2.5e-5,
+def discriminator_fn(img, unused_conditioning,
+                     weight_decay=tf.flags.FLAGS.weight_decay,
                      is_training=True):
     """Discriminator network on MNIST digits.
 
@@ -163,77 +183,75 @@ def discriminator_fn(img, unused_conditioning, weight_decay=2.5e-5,
             net = layers.fully_connected(net, 1024, normalizer_fn=layers.batch_norm)
         return layers.linear(net, 1)
 
-noise_dims = 64
 gan_model = tfgan.gan_model(
     generator_fn,
     discriminator_fn,
     real_data=real_images,
-    generator_inputs=tf.random_normal([batch_size, noise_dims]))
+    generator_inputs=tf.random_normal([tf.flags.FLAGS.batch_size,
+                                       tf.flags.FLAGS.noise_dim]))
 
 
 # Sanity check that generated images before training are garbage.
 check_generated_digits = tfgan.eval.image_reshaper(
-    gan_model.generated_data[:20,...], num_cols=10)
+    gan_model.generated_data[:20,...], num_cols=tf.flags.FLAGS.num_cols)
 visualize_digits(check_generated_digits)
 #plt.show()
-#uncomment to show original original shitty generated digits
+#uncomment to show original original (poor) generated digits
 
 
 gan_loss = tfgan.gan_loss(
     gan_model,
-    # We make the loss explicit for demonstration, even though the default is
-    # Wasserstein loss.
-    generator_loss_fn=tfgan.losses.minimax_generator_loss,
-    discriminator_loss_fn=tfgan.losses.minimax_discriminator_loss,
-    gradient_penalty_weight=1.0)
+    # NOTE: Modify the following 2 lines to change loss function
+    generator_loss_fn=tfgan.losses.modified_generator_loss,
+    discriminator_loss_fn=tfgan.losses.modified_discriminator_loss,
+    gradient_penalty_weight=tf.flags.FLAGS.grad_penalty_wt)
 
-generator_optimizer = tf.train.RMSPropOptimizer(0.001, beta1=0.5)
-discriminator_optimizer = tf.train.RMSPropOptimizer(0.0001, beta1=0.5)
+generator_optimizer = tf.train.RMSPropOptimizer(tf.flags.FLAGS.gen_alpha)
+discriminator_optimizer = tf.train.RMSPropOptimizer(tf.flags.FLAGS.disc_alpha)
 gan_train_ops = tfgan.gan_train_ops(
     gan_model,
     gan_loss,
     generator_optimizer,
     discriminator_optimizer)
 
-num_images_to_eval = 500
-MNIST_CLASSIFIER_FROZEN_GRAPH = './mnist/data/classify_mnist_graph_def.pb'
 
 # For variables to load, use the same variable scope as in the train job.
 with tf.variable_scope('Generator', reuse=True):
     eval_images = gan_model.generator_fn(
-        tf.random_normal([num_images_to_eval, noise_dims]),
+        tf.random_normal([tf.flags.FLAGS.num_imgs_to_eval,
+                          tf.flags.FLAGS.noise_dim]),
         is_training=False)
 
 
 # Calculate Inception score.
-eval_score = util.mnist_score(eval_images, MNIST_CLASSIFIER_FROZEN_GRAPH)
+eval_score = util.mnist_score(eval_images, tf.flags.FLAGS.frozen_graph)
 
 # Calculate Frechet Inception distance.
 with tf.device('/cpu:0'):
-    real_images, _, _ = data_provider.provide_data(
-        'train', num_images_to_eval, MNIST_DATA_DIR)
+    real_images, _, _ = data_provider.provide_data('train',
+        tf.flags.FLAGS.num_imgs_to_eval, tf.flags.FLAGS.mnist_data_dir)
 frechet_distance = util.mnist_frechet_distance(
-    real_images, eval_images, MNIST_CLASSIFIER_FROZEN_GRAPH)
+    real_images, eval_images, tf.flags.FLAGS.frozen_graph)
 
 # Reshape eval images for viewing.
 generated_data_to_visualize = tfgan.eval.image_reshaper(
-    eval_images[:20,...], num_cols=10)
+    eval_images[:20,...], num_cols=tf.flags.FLAGS.num_cols)
 generated_data_to_visualize_tensor=tf.convert_to_tensor(generated_data_to_visualize)
 
-steps=tf.contrib.gan.GANTrainSteps(1,5)
+steps=tf.contrib.gan.GANTrainSteps(1, tf.flags.FLAGS.nCritic)
 train_step_fn = tfgan.get_sequential_train_steps(train_steps=steps)
 
 global_step = tf.train.get_or_create_global_step()
 loss_values, mnist_scores, frechet_distances  = [], [], []
 
-digits_np= tf.placeholder(tf.float32, shape=(1024, 1024))
+digits_np = tf.placeholder(tf.float32, shape=(1024, 1024))
 
-sum1=tf.summary.image(name='digits', tensor=generated_data_to_visualize_tensor)
+sum1 = tf.summary.image(name='digits', tensor=generated_data_to_visualize_tensor)
 with tf.train.SingularMonitoredSession() as sess:
-    writer=tf.summary.FileWriter('/tmp/mnist_demo/14')
+    writer=tf.summary.FileWriter(tf.flags.FLAGS.output_dir)
     writer.add_graph(sess.graph)
     start_time = time.time()
-    for i in xrange(1201):
+    for i in xrange(tf.flags.FLAGS.max_steps):
         cur_loss, _ = train_step_fn(
             sess, gan_train_ops, global_step, train_step_kwargs={})
         loss_values.append((i, cur_loss))
@@ -247,7 +265,7 @@ with tf.train.SingularMonitoredSession() as sess:
             print('Current MNIST score: %f' % mnist_scores[-1][1])
             print('Current Frechet distance: %f' % frechet_distances[-1][1])
             print('-'*8)
-            if i%200==0:
+            if i % tf.flags.FLAGS.report_interval == 0:
                 name = 'GAN_images_' + 'i' + str(i) + '_time' + str(time.time() - start_time)+'v1'
                 visualize_training_generator(i, start_time, digits_np,name=name)
 
