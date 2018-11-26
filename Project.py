@@ -333,6 +333,8 @@ def main():
             print('running sess1')
             curr_loss,glo_gang=train_step_fn(
                 sess, gan_train_ops, global_step, train_step_kwargs={})
+            print('curr_loss:',curr_loss)
+            print('glo_gang:',glo_gang)
             print('ran sess1')
             fetches = {
             }
@@ -352,7 +354,7 @@ def main():
             print('ran sess2')
             if should(a.summary_freq):
                 print("recording summary")
-                sv.summary_writer.add_summary(results["summary"], glo_gang)
+                sv.summary_writer.add_summary(results["summary"], step)
 
             if should(a.display_freq):
                 print("saving display images")
@@ -365,8 +367,8 @@ def main():
 
             if should(a.progress_freq):
                 # global_step will have the correct step count if we resume from a checkpoint
-                train_epoch = math.ceil(glo_gang / examples.steps_per_epoch)
-                train_step = (glo_gang - 1) % examples.steps_per_epoch + 1
+                train_epoch = math.ceil(step / examples.steps_per_epoch)
+                train_step = (step - 1) % examples.steps_per_epoch + 1
                 rate = (step + 1) * a.batch_size / (time.time() - start)
                 remaining = (max_steps - step) * a.batch_size / rate
                 print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (
