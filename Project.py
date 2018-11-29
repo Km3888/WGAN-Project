@@ -346,8 +346,10 @@ def main():
                 options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
             print('running train step')
-            curr_loss, _ = train_step_fn(
+            curr_loss, glo_gang = train_step_fn(
                 sess, gan_train_ops, global_step, train_step_kwargs={})
+            print('curr_loss:',curr_loss)
+            print('glo_gang:',glo_gang)
             print('ran train step')
             fetches = { }
 
