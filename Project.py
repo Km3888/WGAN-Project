@@ -1,3 +1,6 @@
+#!/usr/bin/python3
+
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -17,49 +20,94 @@ import random
 import collections
 import math
 import time
+import sys
+
+# These are a holdover from the infrastructure needed to run on Colab
+DRIVE_BASE_DIR = '/home/js/group-proj/'
+HANDBAG_DIR = DRIVE_BASE_DIR + 'handbags'
+TRAIN_DIR = HANDBAG_DIR + '/500_bags'
+LIBDIR = DRIVE_BASE_DIR + 'imports'
+LOG_DIR = DRIVE_BASE_DIR + '128x500x5k-ncrit1-wass/'
+
+# Update our includes-path to import other files stored in Drive
+# Obviously LIBDIR must be defined first!
+if not os.path.isdir(LIBDIR): raise Exception("LIBDIR not set.")
+if not LIBDIR in sys.path:
+  sys.path.append(LIBDIR)
+if not os.path.isdir(HANDBAG_DIR): raise Exception("Default data path not set.")
+if not os.path.isdir(LOG_DIR): raise Exception("Default log path not set.")
 
 import networks
 from slim.nets import cyclegan
 from slim.nets import pix2pix
 
 
+
 # Main TFGAN library.
 tfgan = tf.contrib.gan
+CROP_SIZE = 128
+
 
 parser = argparse.ArgumentParser()
-if True:
-    parser.add_argument("--input_dir",default='/Users/kellymarshall/PycharmProjects/WGAN_Project/pix2pix-tensorflow/tools/edges2handbags/train', help="path to folder containing images")#added default argument
-    parser.add_argument("--output_dir",default='Project/output7', help="where to put output files")#Removed required and added default argument
 
-    parser.add_argument("--max_steps", default=1000,type=int, help="number of training steps (0 to disable)")#added default argument
-    parser.add_argument("--max_epochs", type=int, help="number of training epochs")#added default argument
-    parser.add_argument("--summary_freq", type=int, default=1, help="update summaries every summary_freq steps")
-    parser.add_argument("--progress_freq", type=int, default=1, help="display progress every progress_freq steps")
-    parser.add_argument("--trace_freq", type=int, default=1, help="trace execution every trace_freq steps")
-    parser.add_argument("--display_freq", type=int, default=1, help="write current training images every display_freq steps")
-    parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
+#added default argument
+parser.add_argument("--input_dir",default=TRAIN_DIR, help="path to folder containing images")
+#Removed required and added default argument
+parser.add_argument("--output_dir",default=LOG_DIR, help="where to put output files")
 
-    parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
-    parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
-    parser.add_argument("--lab_colorization", action="store_true", help="split input image into brightness (A) and color (B)")
-    parser.add_argument("--batch_size", type=int, default=2, help="number of images in batch")
-    parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
-    parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
-    parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-    parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
-    parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
-    parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
-    parser.set_defaults(flip=True)
-    parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
-    parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
-    parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
-    parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
+#added default argument
+parser.add_argument("--max_steps", default=1000,type=int, help="number of training steps (0 to disable)")
+#added default argument
+parser.add_argument("--max_epochs", type=int, help="number of training epochs")
+parser.add_argument("--summary_freq", type=int, default=1, help="update summaries every summary_freq steps")
+parser.add_argument("--progress_freq", type=int, default=1, help="display progress every progress_freq steps")
+parser.add_argument("--trace_freq", type=int, default=1, help="trace execution every trace_freq steps")
+parser.add_argument("--display_freq", type=int, default=1, help="write current training images every display_freq steps")
+parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 
-    parser.add_argument("--n_critic", type=int, default=5, help="Number of training iterations for the discriminator for each generator iteration")
+parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
+parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
+parser.add_argument("--lab_colorization", action="store_true", help="split input image into brightness (A) and color (B)")
+parser.add_argument("--batch_size", type=int, default=2, help="number of images in batch")
+parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
+parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
+parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
+parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
+parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
+parser.set_defaults(flip=True)
+parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
+parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
+parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
+parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 
-a = parser.parse_args()
-EPS = 1e-12
-CROP_SIZE = 256
+parser.add_argument("--n_critic", type=int, default=5, help="Number of training iterations for the discriminator for each generator iteration")
+
+parser.add_argument("--loss_fn", choices=['wgan', 'mod', 'minimax', 'pix2pix'],
+                    default='wgan', help="loss function to use for generator and discriminator.")
+parser.add_argument("--disc_alpha", type=float, default=0.0001, help="Learning rate for discriminator network")
+parser.add_argument("--gen_alpha", type=float, default=0.001, help="Learning rate for generator network")
+
+a = parser.parse_args(args=["--scale_size=140", "--n_critic=1", "--max_steps=1500",
+                            "--batch_size=1", "--output_dir=128x500x1.5k-ncrit1-slowcrit-wass"])
+
+Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, "
+                                              "steps_per_epoch")
+
+GEN_LOSS = None
+DISC_LOSS = None
+if (a.loss_fn == 'wgan'):
+  GEN_LOSS = tfgan.losses.wasserstein_generator_loss
+  DISC_LOSS = tfgan.losses.wasserstein_discriminator_loss
+elif (a.loss_fn == 'mod'):
+  GEN_LOSS = tfgan.losses.modified_generator_loss
+  DISC_LOSS = tfgan.losses.modified_discriminator_loss
+elif (a.loss_fn == 'minimax'):
+  GEN_LOSS = tfgan.losses.minimax_generator_loss
+  DISC_LOSS = tfgan.losses.minimax_discriminator_loss
+elif (a.loss_fn == 'pix2pix'):
+  raise Exception("pix2pix loss function not implemented.")
+else:
+  raise ValueError("Impossible loss function set.")
 
 
 def append_index(filesets, step=False):
@@ -85,7 +133,7 @@ def append_index(filesets, step=False):
 
         index.write("</tr>")
     return index_path
-Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, steps_per_epoch")
+
 
 def preprocess(image):
     with tf.name_scope("preprocess"):
@@ -98,38 +146,6 @@ def deprocess(image):
         # [-1, 1] => [0, 1]
         return (image + 1) / 2
 
-def generator(input_images):
-  """Thin wrapper around CycleGAN generator to conform to the TFGAN API.
-  Args:
-    input_images: A batch of images to translate. Images should be normalized
-      already. Shape is [batch, height, width, channels].
-  Returns:
-    Returns generated image batch.
-  Raises:
-    ValueError: If shape of last dimension (channels) is not defined.
-  """
-  input_images.shape.assert_has_rank(4)
-  input_size = input_images.shape.as_list()
-  channels = input_size[-1]
-  if channels is None:
-    raise ValueError(
-        'Last dimension shape must be known but is None: %s' % input_size)
-  with tf.contrib.framework.arg_scope(cyclegan.cyclegan_arg_scope()):
-    output_images, _ = cyclegan.cyclegan_generator_resnet(input_images,
-                                                          num_outputs=channels)
-  return output_images
-
-def discriminator(image_batch, unused_conditioning=None):
-  """A thin wrapper around the Pix2Pix discriminator to conform to TFGAN API."""
-  with tf.contrib.framework.arg_scope(pix2pix.pix2pix_arg_scope()):
-    logits_4d, _ = pix2pix.pix2pix_discriminator(
-        image_batch, num_filters=[64, 128, 256, 512])
-    logits_4d.shape.assert_has_rank(4)
-  # Output of logits is 4D. Reshape to 2D, for TFGAN.
-  logits_2d = tf.contrib.layers.flatten(logits_4d)
-
-  return logits_2d
-
 
 def save_images(fetches, step=None):
     image_dir = os.path.join(a.output_dir, "images")
@@ -140,8 +156,9 @@ def save_images(fetches, step=None):
     for i, in_path in enumerate(fetches["paths"]):
         name, _ = os.path.splitext(os.path.basename(in_path.decode("utf8")))
         fileset = {"name": name, "step": step}
-        for kind in ["inputs", "outputs", "targets"]:
-            filename = name + "-" + kind + ".png"
+        description = { "inputs": "edge", "targets": "bag", "outputs": "generated" }
+        for kind in ["targets", "inputs", "outputs"]:
+            filename = name + "-" + description[kind] + ".png"
             if step is not None:
                 filename = "%08d-%s" % (step, filename)
             fileset[kind] = filename
@@ -151,6 +168,7 @@ def save_images(fetches, step=None):
                 f.write(contents)
         filesets.append(fileset)
     return filesets
+
 def load_examples():
     if a.input_dir is None or not os.path.exists(a.input_dir):
         raise Exception("input_dir does not exist")
@@ -188,17 +206,13 @@ def load_examples():
 
         raw_input.set_shape([None, None, 3])
 
-            # break apart image pair and move to range [-1, 1]
+        # break apart image pair and move to range [-1, 1]
+        # left half is edge map, right half is full bag
         width = tf.shape(raw_input)[1] # [height, width, channels]
-        a_images = preprocess(raw_input[:,:width//2,:])
-        b_images = preprocess(raw_input[:,width//2:,:])
+        left_images = preprocess(raw_input[:,:width//2,:])
+        right_images = preprocess(raw_input[:,width//2:,:])
 
-    #if a.which_direction == "BtoA":
-    inputs, targets = [b_images, a_images]#We're assuming BtoA
-    '''elif a.which_direction == "AtoB":
-        inputs, targets = [a_images, b_images]
-    else:
-        raise Exception("invalid direction")'''
+    inputs, targets = [left_images, right_images]
 
     # synchronize seed for image operations so that we do the same operations to both
     # input and output images
@@ -236,6 +250,7 @@ def load_examples():
         steps_per_epoch=steps_per_epoch,
     )
 
+
 def main():
     if not os.path.exists(a.output_dir):
         os.makedirs(a.output_dir)
@@ -246,20 +261,20 @@ def main():
     gan_model = tfgan.gan_model(
         generator_fn=networks.generator,
         discriminator_fn=networks.discriminator,
-        real_data=inputs,
-        generator_inputs=targets)
+        real_data=targets,
+        generator_inputs=inputs)
 
     outputs=gan_model.generated_data
 
     with tf.name_scope('losses'):
       gan_loss = tfgan.gan_loss(
           gan_model,
-          generator_loss_fn=tfgan.losses.wasserstein_generator_loss,
-          discriminator_loss_fn=tfgan.losses.wasserstein_discriminator_loss)
+          generator_loss_fn=tfgan.losses.modified_generator_loss,
+          discriminator_loss_fn=tfgan.losses.modified_discriminator_loss)
 
     with tf.name_scope('gan_train_ops'):
-        generator_optimizer = tf.train.RMSPropOptimizer(0.001)
-        discriminator_optimizer = tf.train.RMSPropOptimizer(0.0001)
+        generator_optimizer = tf.train.RMSPropOptimizer(a.gen_alpha)
+        discriminator_optimizer = tf.train.RMSPropOptimizer(a.disc_alpha)
         gan_train_ops = tfgan.gan_train_ops(
             gan_model,
             gan_loss,
@@ -330,12 +345,11 @@ def main():
             if should(a.trace_freq):
                 options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-            print('running sess1')
-            curr_loss,glo_gang=train_step_fn(
+            print('running train step')
+            curr_loss, _ = train_step_fn(
                 sess, gan_train_ops, global_step, train_step_kwargs={})
-            print('ran sess1')
-            fetches = {
-            }
+            print('ran train step')
+            fetches = { }
 
             if should(a.progress_freq):
                 fetches["discrim_loss"],fetches['gen_loss'] = gan_loss
@@ -347,12 +361,12 @@ def main():
                 fetches["display"] = display_fetches
 
             # values in fetches are the variables that get computed by sess
-            print('running sess2..')
+            print('running sess.run')
             results = sess.run(fetches, options=options, run_metadata=run_metadata)
-            print('ran sess2')
+            print('ran sess.run')
             if should(a.summary_freq):
                 print("recording summary")
-                sv.summary_writer.add_summary(results["summary"], glo_gang)
+                sv.summary_writer.add_summary(results["summary"], step)
 
             if should(a.display_freq):
                 print("saving display images")
@@ -365,8 +379,8 @@ def main():
 
             if should(a.progress_freq):
                 # global_step will have the correct step count if we resume from a checkpoint
-                train_epoch = math.ceil(glo_gang / examples.steps_per_epoch)
-                train_step = (glo_gang - 1) % examples.steps_per_epoch + 1
+                train_epoch = math.ceil(step / examples.steps_per_epoch)
+                train_step = (step - 1) % examples.steps_per_epoch + 1
                 rate = (step + 1) * a.batch_size / (time.time() - start)
                 remaining = (max_steps - step) * a.batch_size / rate
                 print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (
@@ -374,9 +388,10 @@ def main():
                 print("discrim_loss", results["discrim_loss"])
                 print("gen_loss", results["gen_loss"])
 
-            if should(a.save_freq):
-                print("saving model")
-                saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
+            # We aren't actually trying to output a reusable model.
+            # if should(a.save_freq):
+            #     print("saving model")
+            #     saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
 
 if __name__=='__main__':
     main()
