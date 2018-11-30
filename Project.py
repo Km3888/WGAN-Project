@@ -46,37 +46,34 @@ from slim.nets import pix2pix
 # Main TFGAN library.
 tfgan = tf.contrib.gan
 CROP_SIZE = 128
-
+DEFAULT_SCALE = 140
 
 parser = argparse.ArgumentParser()
 
 #added default argument
 parser.add_argument("--input_dir",default="", help="path to folder containing images")
-#Removed required and added default argument
 parser.add_argument("--output_dir",default="", help="where to put output files")
 
-#added default argument
-parser.add_argument("--max_steps", default=1000,type=int, help="number of training steps (0 to disable)")
-#added default argument
-parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--summary_freq", type=int, default=1, help="update summaries every summary_freq steps")
-parser.add_argument("--progress_freq", type=int, default=1, help="display progress every progress_freq steps")
-parser.add_argument("--trace_freq", type=int, default=1, help="trace execution every trace_freq steps")
-parser.add_argument("--display_freq", type=int, default=1, help="write current training images every display_freq steps")
-parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
+parser.add_argument("--max_steps", default=1000,type=int,
+                    help="max number of training steps (0 to disable)")
+parser.add_argument("--max_epochs", type=int, help="max number of training epochs")
+parser.add_argument("--summary_freq", type=int, default=1,
+                    help="update summaries every summary_freq steps")
+parser.add_argument("--progress_freq", type=int, default=1,
+                    help="display progress every progress_freq steps")
+parser.add_argument("--trace_freq", type=int, default=1,
+                    help="trace execution every trace_freq steps")
+parser.add_argument("--display_freq", type=int, default=1,
+                    help="write current training images every display_freq steps")
+parser.add_argument("--save_freq", type=int, default=5000,
+                    help="save model every save_freq steps, 0 to disable")
 
-parser.add_argument("--separable_conv", action="store_true", help="use separable convolutions in the generator")
-parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
-parser.add_argument("--lab_colorization", action="store_true", help="split input image into brightness (A) and color (B)")
-parser.add_argument("--batch_size", type=int, default=2, help="number of images in batch")
-parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
-parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
-parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
-parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
-parser.set_defaults(flip=True)
-parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
-parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
+### IMPORTANT PARAMETER ARGUMENTS
+parser.add_argument("--scale_size", type=int, default=DEFAULT_SCALE,
+                    help="scale images to this size before cropping to CROPSIZE x CROPSIZE")
+parser.add_argument("--batch_size", type=int, default=2,
+                    help="number of images in batch")
+### to be used for extension to pix2pix-style loss function--presently unused
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 
@@ -89,14 +86,14 @@ parser.add_argument("--gen_alpha", type=float, default=0.001, help="Learning rat
 parser.add_argument("--dataset", choices=['handbags', 'facades'],
                     default='handbags', help="Choose dataset to use")
 
-a = parser.parse_args(args=["--scale_size=140", "--n_critic=1", "--max_steps=1000",
+a = parser.parse_args(args=["--n_critic=1", "--max_steps=1000",
                             "--loss_fn=mod",
                             #"--disc_alpha=0.0001",
                             "--dataset=handbags",
                             "--batch_size=1" ])
 if a.output_dir == "":
-  a.output_dir = "{}-{}-ncrit{}-alpha{}-{}".format(a.dataset, a.max_steps, a.n_critic,
-                                                   a.disc_alpha, a.loss_fn)
+  a.output_dir = "{}-{}-ncrit{}-batch{}-alpha{}-{}".format(a.dataset, a.max_steps, a.n_critic,
+                                                           a.batch_size, a.disc_alpha, a.loss_fn)
   
 if a.dataset == 'handbags':
   a.input_dir = HANDBAG_DIR
@@ -244,9 +241,6 @@ def load_examples():
     seed = random.randint(0, 2**31 - 1)
     def transform(image):
         r = image
-        if a.flip:
-            r = tf.image.random_flip_left_right(r, seed=seed)
-
         # area produces a nice downscaling, but does nearest neighbor for upscaling
         # assume we're going to be doing downscaling here
         r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
