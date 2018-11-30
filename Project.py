@@ -24,8 +24,8 @@ import sys
 
 # These are a holdover from the infrastructure needed to run on Colab
 DRIVE_BASE_DIR = '/home/js/group-proj/'
-HANDBAG_DIR = DRIVE_BASE_DIR + 'handbags'
-TRAIN_DIR = HANDBAG_DIR + '/500_bags'
+HANDBAG_DIR = DRIVE_BASE_DIR + 'handbags/500_bags'
+FACADE_DIR = DRIVE_BASE_DIR + 'facades/train'
 LIBDIR = DRIVE_BASE_DIR + 'imports'
 LOG_DIR = DRIVE_BASE_DIR + '128x500x5k-ncrit1-wass/'
 
@@ -51,9 +51,9 @@ CROP_SIZE = 128
 parser = argparse.ArgumentParser()
 
 #added default argument
-parser.add_argument("--input_dir",default=TRAIN_DIR, help="path to folder containing images")
+parser.add_argument("--input_dir",default="", help="path to folder containing images")
 #Removed required and added default argument
-parser.add_argument("--output_dir",default=LOG_DIR, help="where to put output files")
+parser.add_argument("--output_dir",default="", help="where to put output files")
 
 #added default argument
 parser.add_argument("--max_steps", default=1000,type=int, help="number of training steps (0 to disable)")
@@ -86,9 +86,26 @@ parser.add_argument("--loss_fn", choices=['wgan', 'mod', 'minimax', 'pix2pix'],
                     default='wgan', help="loss function to use for generator and discriminator.")
 parser.add_argument("--disc_alpha", type=float, default=0.0001, help="Learning rate for discriminator network")
 parser.add_argument("--gen_alpha", type=float, default=0.001, help="Learning rate for generator network")
+parser.add_argument("--dataset", choices=['handbags', 'facades'],
+                    default='handbags', help="Choose dataset to use")
 
-a = parser.parse_args(args=["--scale_size=140", "--n_critic=1", "--max_steps=1500",
-                            "--batch_size=1", "--output_dir=128x500x1.5k-ncrit1-slowcrit-wass"])
+a = parser.parse_args(args=["--scale_size=140", "--n_critic=1", "--max_steps=1000",
+                            "--loss_fn=mod",
+                            #"--disc_alpha=0.0001",
+                            "--dataset=handbags",
+                            "--batch_size=1" ])
+if a.output_dir == "":
+  a.output_dir = "{}-{}-ncrit{}-alpha{}-{}".format(a.dataset, a.max_steps, a.n_critic,
+                                                   a.disc_alpha, a.loss_fn)
+  
+if a.dataset == 'handbags':
+  a.input_dir = HANDBAG_DIR
+elif a.dataset == 'facades':
+  a.input_dir = FACADE_DIR
+else:
+  raise ValueError("Unknown dataset.")
+
+print("Input: {} Output: {}".format(a.input_dir, a.output_dir))
 
 Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, "
                                               "steps_per_epoch")
@@ -96,16 +113,19 @@ Examples = collections.namedtuple("Examples", "paths, inputs, targets, count, "
 GEN_LOSS = None
 DISC_LOSS = None
 if (a.loss_fn == 'wgan'):
+  print("Chose wasserstein loss")
   GEN_LOSS = tfgan.losses.wasserstein_generator_loss
   DISC_LOSS = tfgan.losses.wasserstein_discriminator_loss
 elif (a.loss_fn == 'mod'):
+  print("Chose modified loss")
   GEN_LOSS = tfgan.losses.modified_generator_loss
   DISC_LOSS = tfgan.losses.modified_discriminator_loss
 elif (a.loss_fn == 'minimax'):
+  print("Chose minimax loss")
   GEN_LOSS = tfgan.losses.minimax_generator_loss
   DISC_LOSS = tfgan.losses.minimax_discriminator_loss
 elif (a.loss_fn == 'pix2pix'):
-  raise Exception("pix2pix loss function not implemented.")
+  raise Exception("Full pix2pix loss function not implemented.")
 else:
   raise ValueError("Impossible loss function set.")
 
@@ -212,7 +232,12 @@ def load_examples():
         left_images = preprocess(raw_input[:,:width//2,:])
         right_images = preprocess(raw_input[:,width//2:,:])
 
-    inputs, targets = [left_images, right_images]
+    if (a.dataset == 'handbags'):
+      inputs, targets = [left_images, right_images]
+    elif (a.dataset == 'facades'):
+      targets, inputs = [left_images, right_images]
+    else:
+      raise ValueError("Unknown dataset.")
 
     # synchronize seed for image operations so that we do the same operations to both
     # input and output images
