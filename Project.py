@@ -90,8 +90,9 @@ a = parser.parse_args(args=["--n_critic=3", "--max_steps=1000",
                             "--dataset=handbags",
                             "--batch_size=1" ])
 if a.output_dir == "":
-  a.output_dir = "{}-{}-ncrit{}-batch{}-alpha{}-{}".format(a.dataset, a.max_steps, a.n_critic,
-                                                           a.batch_size, a.disc_alpha, a.loss_fn)
+  a.output_dir = "{}-{}-ncrit{}-batch{}-alpha{}-{}-{}".format(a.dataset, a.max_steps, a.n_critic,
+                                                              a.batch_size, a.disc_alpha, a.loss_fn,
+                                                              random.randint(1000,9999))
   
 if a.dataset == 'handbags':
   a.input_dir = HANDBAG_DIR
@@ -286,8 +287,8 @@ def main():
     with tf.name_scope('losses'):
       gan_loss = tfgan.gan_loss(
           gan_model,
-          generator_loss_fn=tfgan.losses.modified_generator_loss,
-          discriminator_loss_fn=tfgan.losses.modified_discriminator_loss)
+          generator_loss_fn=tfgan.losses.GEN_LOSS,
+          discriminator_loss_fn=tfgan.losses.DISC_LOSS)
 
     with tf.name_scope('gan_train_ops'):
         generator_optimizer = tf.train.RMSPropOptimizer(a.gen_alpha)
