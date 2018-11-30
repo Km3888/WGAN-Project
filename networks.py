@@ -49,8 +49,8 @@ def generator(input_images):
 def discriminator(image_batch, conditioning=None):
   """A thin wrapper around the Pix2Pix discriminator to conform to TFGAN API."""
   with tf.contrib.framework.arg_scope(pix2pix.pix2pix_arg_scope()):
-    # if conditioning:
-    #   tf.contrib.gan.features.condition_tensor(image_batch, conditioning)
+    if conditioning is not None:
+      tf.contrib.gan.features.condition_tensor(image_batch, conditioning)
     logits_4d, _ = pix2pix.pix2pix_discriminator(
         image_batch, num_filters=[64, 128, 256, 512])
     logits_4d.shape.assert_has_rank(4)
@@ -58,5 +58,4 @@ def discriminator(image_batch, conditioning=None):
   logits_2d = tf.contrib.layers.flatten(logits_4d)
 
   return logits_2d
-
 

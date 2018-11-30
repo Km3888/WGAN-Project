@@ -27,7 +27,6 @@ DRIVE_BASE_DIR = '/home/js/group-proj/'
 HANDBAG_DIR = DRIVE_BASE_DIR + 'handbags/500_bags'
 FACADE_DIR = DRIVE_BASE_DIR + 'facades/train'
 LIBDIR = DRIVE_BASE_DIR + 'imports'
-LOG_DIR = DRIVE_BASE_DIR + '128x500x5k-ncrit1-wass/'
 
 # Update our includes-path to import other files stored in Drive
 # Obviously LIBDIR must be defined first!
@@ -35,7 +34,6 @@ if not os.path.isdir(LIBDIR): raise Exception("LIBDIR not set.")
 if not LIBDIR in sys.path:
   sys.path.append(LIBDIR)
 if not os.path.isdir(HANDBAG_DIR): raise Exception("Default data path not set.")
-if not os.path.isdir(LOG_DIR): raise Exception("Default log path not set.")
 
 import networks
 from slim.nets import cyclegan
@@ -86,8 +84,8 @@ parser.add_argument("--gen_alpha", type=float, default=0.001, help="Learning rat
 parser.add_argument("--dataset", choices=['handbags', 'facades'],
                     default='handbags', help="Choose dataset to use")
 
-a = parser.parse_args(args=["--n_critic=1", "--max_steps=1000",
-                            "--loss_fn=mod",
+a = parser.parse_args(args=["--n_critic=3", "--max_steps=1000",
+                            "--loss_fn=wgan",
                             #"--disc_alpha=0.0001",
                             "--dataset=handbags",
                             "--batch_size=1" ])
@@ -211,7 +209,8 @@ def load_examples():
         input_paths = sorted(input_paths)
 
     with tf.name_scope("load_images"):
-        path_queue = tf.train.string_input_producer(input_paths, shuffle=True)#we're assuming that it's always training
+        # we're always training
+        path_queue = tf.train.string_input_producer(input_paths, shuffle=True)
         reader = tf.WholeFileReader()
         paths, contents = reader.read(path_queue)
         raw_input = decode(contents)
@@ -224,7 +223,6 @@ def load_examples():
         raw_input.set_shape([None, None, 3])
 
         # break apart image pair and move to range [-1, 1]
-        # left half is edge map, right half is full bag
         width = tf.shape(raw_input)[1] # [height, width, channels]
         left_images = preprocess(raw_input[:,:width//2,:])
         right_images = preprocess(raw_input[:,width//2:,:])
