@@ -19,9 +19,7 @@ import time
 DRIVE_BASE_DIR = '/home/js/group-proj/'
 HANDBAG_DIR = DRIVE_BASE_DIR + 'handbags/500_bags'
 FACADE_DIR = DRIVE_BASE_DIR + 'facades/train'
-# LIBDIR = DRIVE_BASE_DIR + 'imports'
 
-#EPS = 1e-12
 CROP_SIZE = 128
 
 ARGSTRING = []
@@ -39,7 +37,7 @@ parser.add_argument("--loss_fn", choices=['wgan', 'mod', 'minimax', 'pix2pix'],
 
 parser.add_argument("--max_steps", type=int, default="5000",
                     help="number of training steps (0 to disable)")
-parser.add_argument("--max_epochs", type=int, default="15",
+parser.add_argument("--max_epochs", type=int, default="20",
                     help="number of training epochs")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
@@ -67,7 +65,7 @@ if a.output_dir == "" or a.output_dir is None:
                             a.lr, a.l1_weight, a.seed, a.loss_fn))
     i = 1
     stub = a.output_dir
-    while(os.isdir(a.output_dir)):
+    while(os.path.exists(a.output_dir)):
         a.output_dir = "{}.{}".format(stub, str(i).zfill(4))
         i = i + 1
     
@@ -206,25 +204,33 @@ def create_generator(generator_inputs, generator_outputs_channels):
     layers = []
 
     # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
+    # or [batch, 128, 128, in_channels] => [batch, 64, 64, ngf], or whatever!
     with tf.variable_scope("encoder_1"):
         output = gen_conv(generator_inputs, a.ngf)
         layers.append(output)
 
-    layer_specs = [
-        a.ngf * 2, # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 2]
-        a.ngf * 4, # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 4]
-        a.ngf * 8, # encoder_4: [batch, 32, 32, ngf * 4] => [batch, 16, 16, ngf * 8]
-        a.ngf * 8, # encoder_5: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
-        a.ngf * 8, # encoder_6: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
-        a.ngf * 8, # encoder_7: [batch, 4, 4, ngf * 8] => [batch, 2, 2, ngf * 8]
+    # The following automatically accommodates images of arbitrary size
+    # provided the image dimension is a power-of-2.
+    encoder_layer_specs = []
+    for i in range (1, int(math.log(CROP_SIZE, 2))):
+        v = a.ngf * (min(2**i, 8))
+        encoder_layer_specs.append(v)
+        
+#     layer_specs = [
+#         a.ngf * 2, # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 2]
+#         a.ngf * 4, # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 4]
+#         a.ngf * 8, # encoder_4: [batch, 32, 32, ngf * 4] => [batch, 16, 16, ngf * 8]
+#         a.ngf * 8, # encoder_5: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
+#         a.ngf * 8, # encoder_6: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
+#         a.ngf * 8, # encoder_7: [batch, 4, 4, ngf * 8] => [batch, 2, 2, ngf * 8]
 
-        ### I shrunk the image size, so I need to drop a layer!!
-        ### Above sizes are off by a factor of 2!
-#        a.ngf * 8, # encoder_8: [batch, 2, 2, ngf * 8] => [batch, 1, 1, ngf * 8]
-    ]
+#         ### We shrunk the image size, so have to drop a layer!!
+#         ### Above sizes are off by a factor of 2!
+# #        a.ngf * 8, # encoder_8: [batch, 2, 2, ngf * 8] => [batch, 1, 1, ngf * 8]
+#     ]
+#     assert(layer_specs == encoder_layer_specs)
 
-
-    for out_channels in layer_specs:
+    for out_channels in encoder_layer_specs:
         with tf.variable_scope("encoder_%d" % (len(layers) + 1)):
             rectified = lrelu(layers[-1], 0.2)
             # [batch, in_height, in_width, in_channels] => [batch, in_height/2, in_width/2, out_channels]
@@ -232,19 +238,27 @@ def create_generator(generator_inputs, generator_outputs_channels):
             output = batchnorm(convolved)
             layers.append(output)
 
-    layer_specs = [
-        ### and the reverse of the above: drop a layer coming back out
-#        (a.ngf * 8, 0.5),   # decoder_8: [batch, 1, 1, ngf * 8] => [batch, 2, 2, ngf * 8 * 2]
-        (a.ngf * 8, 0.5),   # decoder_7: [batch, 2, 2, ngf * 8 * 2] => [batch, 4, 4, ngf * 8 * 2]
-        (a.ngf * 8, 0.5),   # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
-        (a.ngf * 8, 0.0),   # decoder_5: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
-        (a.ngf * 4, 0.0),   # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
-        (a.ngf * 2, 0.0),   # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
-        (a.ngf, 0.0),       # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
-    ]
-
+    decoder_layer_specs = []
+    for i in range (len(layer_specs), 0, -1):
+        x = 0.0
+        if i > 4: x = 0.5
+        v = (a.ngf * (min(2**(i-1), 8)), x)
+        decoder_layer_specs.append(v)
+            
+#     layer_specs = [
+#         ### and the reverse of the above: drop a layer coming back out
+# #        (a.ngf * 8, 0.5),   # decoder_8: [batch, 1, 1, ngf * 8] => [batch, 2, 2, ngf * 8 * 2]
+#         (a.ngf * 8, 0.5),   # decoder_7: [batch, 2, 2, ngf * 8 * 2] => [batch, 4, 4, ngf * 8 * 2]
+#         (a.ngf * 8, 0.5),   # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
+#         (a.ngf * 8, 0.0),   # decoder_5: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
+#         (a.ngf * 4, 0.0),   # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
+#         (a.ngf * 2, 0.0),   # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
+#         (a.ngf, 0.0),       # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
+#     ]
+#     assert(layer_specs == decoder_layer_specs)
+    
     num_encoder_layers = len(layers)
-    for decoder_layer, (out_channels, dropout) in enumerate(layer_specs):
+    for decoder_layer, (out_channels, dropout) in enumerate(decoder_layer_specs):
         skip_layer = num_encoder_layers - decoder_layer - 1
         with tf.variable_scope("decoder_%d" % (skip_layer + 1)):
             if decoder_layer == 0:
@@ -255,9 +269,6 @@ def create_generator(generator_inputs, generator_outputs_channels):
                 for i in range(0, len(layers)):
                     print("\t{}:\n{}\n"
                           .format(i, layers[i]))
-                # raise Exception("concatting layers {} and {}:\n\t{} and\n\t{}"
-                #                 .format((len(layers)), skip_layer,
-                #                         layers[-1], layers[skip_layer]))
                 input = tf.concat([layers[-1], layers[skip_layer]], axis=3)
 
             rectified = tf.nn.relu(input)
@@ -270,7 +281,8 @@ def create_generator(generator_inputs, generator_outputs_channels):
 
             layers.append(output)
 
-    # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
+    # decoder_1: [batch, CROP_SIZE/2, CROP_SIZE/2, ngf * 2] =>
+    #            [batch, CROP_SIZE, CROP_SIZE, generator_outputs_channels]
     with tf.variable_scope("decoder_1"):
         input = tf.concat([layers[-1], layers[0]], axis=3)
         rectified = tf.nn.relu(input)
