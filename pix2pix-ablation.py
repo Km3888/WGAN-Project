@@ -33,13 +33,14 @@ parser.add_argument("--seed", type=int)
 parser.add_argument("--dataset", choices=['handbags', 'facades'], default='handbags',
                     help="Choose dataset to use.")
 
-parser.add_argument("--n_critic", type=int, default=1)
 parser.add_argument("--loss_fn", choices=['wgan', 'mod', 'minimax', 'pix2pix'],
                     default='pix2pix',
                     help="Loss function to use for generator and discriminator.")
 
-parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
-parser.add_argument("--max_epochs", type=int, help="number of training epochs")
+parser.add_argument("--max_steps", type=int, default="5000",
+                    help="number of training steps (0 to disable)")
+parser.add_argument("--max_epochs", type=int, default="15",
+                    help="number of training epochs")
 parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
 parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
@@ -61,10 +62,14 @@ else:
     a = parser.parse_args()
 
 if a.output_dir == "" or a.output_dir is None:
-    a.output_dir = ("{}-{}-ncrit{}-batch{}-lr{}-l1{}-{}-{}"
-                    .format(a.dataset, a.max_steps, a.n_critic,
-                            a.batch_size, a.lr, a.l1_weight, a.loss_fn,
-                            random.randint(1000, 9999)))
+    a.output_dir = ("{}-s{}-e{}-batch{}-lr{}-L1wt{}-seed{}-{}"
+                    .format(a.dataset, a.max_steps, a.max_epochs, a.batch_size,
+                            a.lr, a.l1_weight, a.seed, a.loss_fn))
+    i = 1
+    stub = a.output_dir
+    while(os.isdir(a.output_dir)):
+        a.output_dir = "{}.{}".format(stub, str(i).zfill(4))
+        i = i + 1
     
 if a.dataset == 'handbags':
     a.input_dir = HANDBAG_DIR
@@ -547,8 +552,9 @@ def save_images(fetches, step=None):
     for i, in_path in enumerate(fetches["paths"]):
         name, _ = os.path.splitext(os.path.basename(in_path.decode("utf8")))
         fileset = {"name": name, "step": step}
+        description = { "inputs": "edge", "targets": "base", "outputs": "faked" }
         for kind in ["inputs", "outputs", "targets"]:
-            filename = name + "-" + kind + ".png"
+            filename = name + "-" + description[kind] + ".png"
             if step is not None:
                 filename = "%08d-%s" % (step, filename)
             fileset[kind] = filename
