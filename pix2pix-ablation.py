@@ -239,7 +239,7 @@ def create_generator(generator_inputs, generator_outputs_channels):
             layers.append(output)
 
     decoder_layer_specs = []
-    for i in range (len(layer_specs), 0, -1):
+    for i in range (len(encoder_layer_specs), 0, -1):
         x = 0.0
         if i > 4: x = 0.5
         v = (a.ngf * (min(2**(i-1), 8)), x)
@@ -385,7 +385,7 @@ def minimax_discriminator_loss(discriminator_real_outputs,
     scope_name = 'discriminator_minimax_loss'
     if modified:
         scope_name = 'discriminator_modified_loss'
-    with tf.name_scope(None, 'discriminator_minimax_loss', (
+    with tf.name_scope(None, scope_name, (
             discriminator_real_outputs, discriminator_gen_outputs, real_weights,
             generated_weights, label_smoothing)) as scope:
 
@@ -520,7 +520,11 @@ def create_model(inputs, targets):
     discrim_loss = DISCRIM_LOSS(predict_real, predict_fake)
     gen_loss_GAN = GEN_LOSS(predict_fake)
     with tf.name_scope("generator_loss"):
-        gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+        if (a.l1_weight == 0.0):
+            # don't bother to compute what we plan to ignore
+            gen_loss_L1 = tf.constant(0.0)
+        else:
+            gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
         gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
 
     with tf.name_scope("discriminator_train"):
